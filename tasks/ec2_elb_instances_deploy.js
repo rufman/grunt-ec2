@@ -6,6 +6,7 @@ var util = require('util');
 var conf  = require('./lib/conf.js');
 var aws = require('./lib/aws.js');
 var scp = require('scp');
+var async = require('async');
 
 module.exports = function (grunt) {
 
@@ -15,7 +16,7 @@ module.exports = function (grunt) {
         conf.init(grunt);
 
         if(grunt.config.get('confirmDeploy') || override ) {
-            var done = this.async();
+            var done = this.async()
             var balancer = elbs || conf('AWS_ELB_NAME');
             if (balancer === void 0) {
                 grunt.fatal([
@@ -50,26 +51,30 @@ module.exports = function (grunt) {
 
                             var hosts = _.pluck(flatInstances, 'PublicDnsName');
 
-                            var callback = function (err) {
-                                if (err) {
-                                    grunt.log.error('Failed with error: %s.',  chalk.red(err.message));
-                                } else {
-                                    grunt.log.ok('File(s) %s transferred to %s.', chalk.cyan(options.file), chalk.magenta(options.host));
-                                }
-                                done();
-                            };
+                            async.forEach(hosts, function(host, cb){
 
-                            for(var i in hosts){
                                 var options = {
                                     file: files.split(',').join(' '),
                                     user: conf('AWS_SSH_USER'),
-                                    host: hosts[i],
+                                    host: host,
                                     port: '22',
                                     path: conf('AWS_DEPLOY_PATH'),
                                 };
 
-                                scp.send(options, callback);
-                            }
+                                grunt.log.writeln('Deploying to EC2 instance %s ...', chalk.cyan(host));
+
+                                scp.send(options, function (err) {
+                                    if (err) {
+                                        grunt.log.error('Failed with error: %s.',  chalk.red(err.message));
+                                    } else {
+                                        grunt.log.ok('File(s) %s transferred to %s.', chalk.cyan(options.file), chalk.magenta(options.host));
+                                    }
+                                    cb();
+                                });
+                            }, function(error) {
+                              done(!error);
+                            });
+
 
                         }
                     });
